@@ -150,6 +150,4 @@ MIT License. See [LICENSE](LICENSE) for full text.
 - Close Pub/Sub channels when no longer needed
 - Transactions must be explicitly committed
 - Default channel buffer size: 100 messages
-
-For complete API documentation, refer to the [GoDoc](https://pkg.go.dev/github.com/yourusername/store)
 ```
