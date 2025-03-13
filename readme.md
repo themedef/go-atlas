@@ -15,7 +15,7 @@ A high-performance thread-safe in-memory data store with advanced features for G
 ## Installation
 
 ```bash
-go get github.com/yourusername/store
+go get github.com/themedef/go-atlas
 ```
 ## Basic Usage
 
