@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/themedef/go-atlas/internal/commands"
-	"github.com/themedef/go-atlas/internal/contracts"
 	"github.com/themedef/go-atlas/internal/logger"
 	"github.com/themedef/go-atlas/internal/pubsub"
 	"github.com/themedef/go-atlas/internal/transaction"
@@ -28,7 +27,7 @@ type DB struct {
 	mu          sync.RWMutex
 	data        map[string]Entry
 	logger      *logger.Logger
-	pubsub      contracts.PubSub
+	pubsub      *pubsub.PubSub
 	config      Config
 	transaction *transaction.Transaction
 	commands    *commands.CommandAPI
@@ -139,7 +138,8 @@ func (db *DB) Get(ctx context.Context, key string) (interface{}, bool, error) {
 
 	entry, exists := db.data[key]
 	if !exists || isExpired(entry) {
-		db.logger.Warn("GET key=%s (not found or expired)", key)
+		delete(db.data, key)
+		db.logger.Info("GET key=%s (not found or expired)", key)
 		return nil, false, nil
 	}
 	db.logger.Info("GET key=%s value=%v", key, entry.Value)
@@ -487,14 +487,26 @@ func (db *DB) FlushAll(ctx context.Context) error {
 func (db *DB) cleanupExpiredKeys(interval time.Duration) {
 	for {
 		time.Sleep(interval)
-		db.mu.Lock()
+
+		expiredKeys := make([]string, 0)
+		db.mu.RLock()
 		for key, entry := range db.data {
 			if isExpired(entry) {
-				delete(db.data, key)
-				db.logger.Info("EXPIRED key=%s", key)
+				expiredKeys = append(expiredKeys, key)
 			}
 		}
-		db.mu.Unlock()
+		db.mu.RUnlock()
+
+		if len(expiredKeys) > 0 {
+			db.mu.Lock()
+			for _, key := range expiredKeys {
+				if entry, exists := db.data[key]; exists && isExpired(entry) {
+					delete(db.data, key)
+					db.logger.Info("EXPIRED key=%s", key)
+				}
+			}
+			db.mu.Unlock()
+		}
 	}
 }
 
