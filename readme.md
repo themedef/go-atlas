@@ -33,7 +33,7 @@ func main() {
         EnableLogging:   true,
         LogFile:         "data.log",
     }
-    db := store.NewStore(cfg)
+    db := Atlas.NewStore(cfg)
 
     // Basic operations
     ctx := context.Background()
