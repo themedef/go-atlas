@@ -34,6 +34,11 @@ type DB struct {
 }
 
 func NewStore(config Config) *DB {
+
+	if config.CleanupInterval == 0 {
+		config.CleanupInterval = time.Second
+	}
+
 	dbLogger, err := logger.NewLogger(logger.Config{
 		LogFile: config.LogFile,
 		Enabled: config.EnableLogging,

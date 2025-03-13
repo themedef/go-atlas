@@ -1,11 +1,11 @@
-package atlas.com/themedef/go -atlas
+package atlas
 
 import (
-"context"
-"fmt"
-"sync"
-"testing"
-"time"
+	"context"
+	"fmt"
+	"sync"
+	"testing"
+	"time"
 )
 
 func testStore() *DB {

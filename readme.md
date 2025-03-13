@@ -29,7 +29,6 @@ import (
 func main() {
     // Initialize store
     cfg := atlas.Config{
-        CleanupInterval: 1 * time.Hour,
         EnableLogging:   true,
         LogFile:         "data.log",
     }
