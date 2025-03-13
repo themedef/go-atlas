@@ -9,12 +9,12 @@ import (
 )
 
 func setupTestDB() contracts.Store {
-	config := main.Config{
+	config := atlas.Config{
 		CleanupInterval: time.Second * 10,
 		EnableLogging:   false,
 		LogFile:         "",
 	}
-	return main.NewStore(config)
+	return atlas.NewStore(config)
 }
 
 func TestTransactionSetCommit(t *testing.T) {

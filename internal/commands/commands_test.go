@@ -8,7 +8,7 @@ import (
 )
 
 func helperCreateAPI() (*CommandAPI, context.Context) {
-	db := main.NewStore(main.Config{
+	db := atlas.NewStore(atlas.Config{
 		CleanupInterval: 1 * time.Second,
 		EnableLogging:   false,
 		LogFile:         "",
@@ -21,7 +21,7 @@ func TestCommandAPI_Set(t *testing.T) {
 	api, ctx := helperCreateAPI()
 
 	parts := []string{"SET", "myKey", "myValue"}
-	got, err := api.ExecuteCommand(ctx, parts)
+	got, err := api.Execute(ctx, parts)
 	if err != nil {
 		t.Fatalf("ExecuteCommand error: %v", err)
 	}
@@ -33,12 +33,12 @@ func TestCommandAPI_Set(t *testing.T) {
 func TestCommandAPI_Get(t *testing.T) {
 	api, ctx := helperCreateAPI()
 
-	_, err := api.ExecuteCommand(ctx, []string{"SET", "key1", "val1"})
+	_, err := api.Execute(ctx, []string{"SET", "key1", "val1"})
 	if err != nil {
 		t.Fatalf("SET error: %v", err)
 	}
 
-	got, err := api.ExecuteCommand(ctx, []string{"GET", "key1"})
+	got, err := api.Execute(ctx, []string{"GET", "key1"})
 	if err != nil {
 		t.Fatalf("GET error: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestCommandAPI_Get(t *testing.T) {
 		t.Errorf("Got=%q, want=%q", got, "\"val1\"")
 	}
 
-	got2, err2 := api.ExecuteCommand(ctx, []string{"GET", "noKey"})
+	got2, err2 := api.Execute(ctx, []string{"GET", "noKey"})
 	if err2 != nil {
 		t.Fatalf("GET error: %v", err2)
 	}
@@ -58,12 +58,12 @@ func TestCommandAPI_Get(t *testing.T) {
 func TestCommandAPI_Del(t *testing.T) {
 	api, ctx := helperCreateAPI()
 
-	_, err := api.ExecuteCommand(ctx, []string{"SET", "willDelete", "something"})
+	_, err := api.Execute(ctx, []string{"SET", "willDelete", "something"})
 	if err != nil {
 		t.Fatalf("SET error: %v", err)
 	}
 
-	got, err := api.ExecuteCommand(ctx, []string{"DEL", "willDelete"})
+	got, err := api.Execute(ctx, []string{"DEL", "willDelete"})
 	if err != nil {
 		t.Fatalf("DEL error: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestCommandAPI_Del(t *testing.T) {
 		t.Errorf("Got=%q, want=%q", got, "true")
 	}
 
-	got2, err2 := api.ExecuteCommand(ctx, []string{"DEL", "willDelete"})
+	got2, err2 := api.Execute(ctx, []string{"DEL", "willDelete"})
 	if err2 != nil {
 		t.Fatalf("DEL error: %v", err2)
 	}
@@ -83,7 +83,7 @@ func TestCommandAPI_Del(t *testing.T) {
 func TestCommandAPI_IncrDecr(t *testing.T) {
 	api, ctx := helperCreateAPI()
 
-	got, err := api.ExecuteCommand(ctx, []string{"INCR", "numKey"})
+	got, err := api.Execute(ctx, []string{"INCR", "numKey"})
 	if err != nil {
 		t.Fatalf("INCR error: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestCommandAPI_IncrDecr(t *testing.T) {
 		t.Errorf("Got=%q, want=%q", got, "1")
 	}
 
-	got2, err2 := api.ExecuteCommand(ctx, []string{"INCR", "numKey"})
+	got2, err2 := api.Execute(ctx, []string{"INCR", "numKey"})
 	if err2 != nil {
 		t.Fatalf("INCR error: %v", err2)
 	}
@@ -99,7 +99,7 @@ func TestCommandAPI_IncrDecr(t *testing.T) {
 		t.Errorf("Got=%q, want=%q", got2, "2")
 	}
 
-	got3, err3 := api.ExecuteCommand(ctx, []string{"DECR", "numKey"})
+	got3, err3 := api.Execute(ctx, []string{"DECR", "numKey"})
 	if err3 != nil {
 		t.Fatalf("DECR error: %v", err3)
 	}
@@ -111,17 +111,17 @@ func TestCommandAPI_IncrDecr(t *testing.T) {
 func TestCommandAPI_ListOps(t *testing.T) {
 	api, ctx := helperCreateAPI()
 
-	got, err := api.ExecuteCommand(ctx, []string{"LPUSH", "listKey", "val1"})
+	got, err := api.Execute(ctx, []string{"LPUSH", "listKey", "val1"})
 	if err != nil || got != "OK" {
 		t.Fatalf("LPUSH got=%q err=%v, want=OK", got, err)
 	}
 
-	_, err2 := api.ExecuteCommand(ctx, []string{"LPUSH", "listKey", "val2"})
+	_, err2 := api.Execute(ctx, []string{"LPUSH", "listKey", "val2"})
 	if err2 != nil {
 		t.Fatalf("LPUSH2 error: %v", err2)
 	}
 
-	got3, err3 := api.ExecuteCommand(ctx, []string{"RPOP", "listKey"})
+	got3, err3 := api.Execute(ctx, []string{"RPOP", "listKey"})
 	if err3 != nil {
 		t.Fatalf("RPOP error: %v", err3)
 	}
@@ -129,7 +129,7 @@ func TestCommandAPI_ListOps(t *testing.T) {
 		t.Errorf("Got=%q, want=%q", got3, "val1")
 	}
 
-	got4, err4 := api.ExecuteCommand(ctx, []string{"LPOP", "listKey"})
+	got4, err4 := api.Execute(ctx, []string{"LPOP", "listKey"})
 	if err4 != nil {
 		t.Fatalf("LPOP error: %v", err4)
 	}
@@ -137,7 +137,7 @@ func TestCommandAPI_ListOps(t *testing.T) {
 		t.Errorf("Got=%q, want=%q", got4, "val2")
 	}
 
-	got5, err5 := api.ExecuteCommand(ctx, []string{"RPOP", "listKey"})
+	got5, err5 := api.Execute(ctx, []string{"RPOP", "listKey"})
 	if err5 != nil {
 		t.Fatalf("RPOP error: %v", err5)
 	}
@@ -149,12 +149,12 @@ func TestCommandAPI_ListOps(t *testing.T) {
 func TestCommandAPI_ExpireFind(t *testing.T) {
 	api, ctx := helperCreateAPI()
 
-	_, err := api.ExecuteCommand(ctx, []string{"EXPIRE", "someKey"})
+	_, err := api.Execute(ctx, []string{"EXPIRE", "someKey"})
 	if err == nil {
 		t.Errorf("Expected error, got nil")
 	}
 
-	gotF, errF := api.ExecuteCommand(ctx, []string{"FIND", "aaa"})
+	gotF, errF := api.Execute(ctx, []string{"FIND", "aaa"})
 	if errF != nil {
 		t.Fatalf("FIND error: %v", errF)
 	}
@@ -162,8 +162,8 @@ func TestCommandAPI_ExpireFind(t *testing.T) {
 		t.Errorf("Got=%q, want=%q", gotF, "Keys: []")
 	}
 
-	_, _ = api.ExecuteCommand(ctx, []string{"SET", "k1", "aaa"})
-	gotF2, errF2 := api.ExecuteCommand(ctx, []string{"FIND", "aaa"})
+	_, _ = api.Execute(ctx, []string{"SET", "k1", "aaa"})
+	gotF2, errF2 := api.Execute(ctx, []string{"FIND", "aaa"})
 	if errF2 != nil {
 		t.Fatalf("FIND2 error: %v", errF2)
 	}
@@ -171,7 +171,7 @@ func TestCommandAPI_ExpireFind(t *testing.T) {
 		t.Errorf("Got=%q, want=%q", gotF2, "Keys: [k1]")
 	}
 
-	gotE, errE := api.ExecuteCommand(ctx, []string{"EXPIRE", "k1", "30"})
+	gotE, errE := api.Execute(ctx, []string{"EXPIRE", "k1", "30"})
 	if errE != nil {
 		t.Fatalf("EXPIRE error: %v", errE)
 	}
@@ -183,12 +183,12 @@ func TestCommandAPI_ExpireFind(t *testing.T) {
 func TestCommandAPI_UnknownQuit(t *testing.T) {
 	api, ctx := helperCreateAPI()
 
-	_, err := api.ExecuteCommand(ctx, []string{"FOO"})
+	_, err := api.Execute(ctx, []string{"FOO"})
 	if err == nil {
 		t.Error("Expected error for unknown command, got nil")
 	}
 
-	got, err2 := api.ExecuteCommand(ctx, []string{"QUIT"})
+	got, err2 := api.Execute(ctx, []string{"QUIT"})
 	if err2 != nil {
 		t.Fatalf("QUIT error: %v", err2)
 	}

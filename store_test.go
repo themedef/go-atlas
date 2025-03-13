@@ -1,4 +1,4 @@
-package github.com/themedef/go -atlas
+package atlas.com/themedef/go -atlas
 
 import (
 "context"

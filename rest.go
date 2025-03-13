@@ -1,19 +1,19 @@
-package delivery
+package atlas
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/themedef/go-atlas"
+	"github.com/themedef/go-atlas/internal/contracts"
 	"net/http"
 )
 
 type APIHandler struct {
-	db  *main.DB
+	db  contracts.Store
 	ctx context.Context
 }
 
-func NewAPIHandler(ctx context.Context, db *main.DB) *APIHandler {
+func NewAPIHandler(ctx context.Context, db contracts.Store) *APIHandler {
 	return &APIHandler{db: db, ctx: ctx}
 }
 
@@ -47,7 +47,7 @@ func (h *APIHandler) RunServer(port, prefix string, middlewares ...func(http.Han
 
 	fmt.Println("Server running on :"+port+" with prefix:", prefix)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
-		fmt.Println("❌ Server failed to start:", err)
+		fmt.Println("Server failed to start:", err)
 	}
 }
 

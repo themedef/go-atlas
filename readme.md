@@ -23,12 +23,12 @@ go get github.com/themedef/go-atlas
 import (
     "context"
     "time"
-    "github.com/yourusername/store"
+    "github.com/themedef/go-atlas"
 )
 
 func main() {
     // Initialize store
-    cfg := store.Config{
+    cfg := Atlas.Config{
         CleanupInterval: 1 * time.Hour,
         EnableLogging:   true,
         LogFile:         "data.log",
