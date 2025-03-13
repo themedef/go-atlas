@@ -28,12 +28,12 @@ import (
 
 func main() {
     // Initialize store
-    cfg := Atlas.Config{
+    cfg := atlas.Config{
         CleanupInterval: 1 * time.Hour,
         EnableLogging:   true,
         LogFile:         "data.log",
     }
-    db := Atlas.NewStore(cfg)
+    db := atlas.NewStore(cfg)
 
     // Basic operations
     ctx := context.Background()
