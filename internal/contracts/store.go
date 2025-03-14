@@ -18,6 +18,10 @@ type Store interface {
 	RPush(ctx context.Context, key string, value interface{}) error
 	LPop(ctx context.Context, key string) (interface{}, bool, error)
 	RPop(ctx context.Context, key string) (interface{}, bool, error)
+	HSet(ctx context.Context, key string, field string, value interface{}, ttl int) error
+	HGet(ctx context.Context, key string, field string) (interface{}, bool, error)
+	HDel(ctx context.Context, key string, field string) error
+	HGetAll(ctx context.Context, key string) (map[string]interface{}, error)
 	FindByValue(ctx context.Context, value interface{}) ([]string, error)
 	UpdateTTL(ctx context.Context, key string, ttl int) error
 	FlushAll(ctx context.Context) error

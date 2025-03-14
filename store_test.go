@@ -324,6 +324,148 @@ func TestTTLAndExpiration(t *testing.T) {
 	})
 }
 
+func TestHashOperations(t *testing.T) {
+	t.Run("Basic HSET/HGET", func(t *testing.T) {
+		db := testStore()
+		defer db.ClosePubSub()
+
+		ctx := context.Background()
+		err := db.HSet(ctx, "user:1", "name", "Alice", 3600)
+		if err != nil {
+			t.Fatalf("HSET failed: %v", err)
+		}
+
+		val, ok, err := db.HGet(ctx, "user:1", "name")
+		if err != nil {
+			t.Fatalf("HGET failed: %v", err)
+		}
+		if !ok || val != "Alice" {
+			t.Error("HGET returned invalid value")
+		}
+	})
+
+	t.Run("HDEL field", func(t *testing.T) {
+		db := testStore()
+		defer db.ClosePubSub()
+
+		ctx := context.Background()
+		db.HSet(ctx, "user:1", "email", "alice@example.com", 0)
+
+		err := db.HDel(ctx, "user:1", "email")
+		if err != nil {
+			t.Fatalf("HDEL failed: %v", err)
+		}
+
+		_, ok, _ := db.HGet(ctx, "user:1", "email")
+		if ok {
+			t.Error("Field not deleted")
+		}
+	})
+
+	t.Run("HGETALL returns all fields", func(t *testing.T) {
+		db := testStore()
+		defer db.ClosePubSub()
+
+		ctx := context.Background()
+		db.HSet(ctx, "product:1", "title", "Laptop", 0)
+		db.HSet(ctx, "product:1", "price", 999, 0)
+
+		result, err := db.HGetAll(ctx, "product:1")
+		if err != nil {
+			t.Fatalf("HGETALL failed: %v", err)
+		}
+
+		if len(result) != 2 || result["title"] != "Laptop" || result["price"] != 999 {
+			t.Error("HGETALL returned invalid data")
+		}
+	})
+
+	t.Run("Hash expiration", func(t *testing.T) {
+		db := NewStore(Config{
+			CleanupInterval: 50 * time.Millisecond,
+			EnableLogging:   false,
+		})
+		defer db.ClosePubSub()
+
+		ctx := context.Background()
+		db.HSet(ctx, "temp:hash", "data", "value", 1) // TTL 1 second
+
+		time.Sleep(2 * time.Second)
+
+		_, ok, _ := db.HGet(ctx, "temp:hash", "data")
+		if ok {
+			t.Error("Hash not expired")
+		}
+	})
+
+	t.Run("Concurrent hash access", func(t *testing.T) {
+		db := testStore()
+		defer db.ClosePubSub()
+
+		var wg sync.WaitGroup
+		ctx := context.Background()
+
+		for i := 0; i < 100; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				key := fmt.Sprintf("concurrent:%d", idx)
+				db.HSet(ctx, key, "field", idx, 0)
+				val, _, _ := db.HGet(ctx, key, "field")
+				if val != idx {
+					t.Errorf("Value mismatch for key %s", key)
+				}
+			}(i)
+		}
+		wg.Wait()
+	})
+}
+
+func TestEdgeCasesForHashes(t *testing.T) {
+	t.Run("Empty field name", func(t *testing.T) {
+		db := testStore()
+		defer db.ClosePubSub()
+
+		ctx := context.Background()
+		err := db.HSet(ctx, "empty", "", "value", 0)
+		if err != nil {
+			t.Fatalf("HSET failed: %v", err)
+		}
+
+		val, ok, _ := db.HGet(ctx, "empty", "")
+		if !ok || val != "value" {
+			t.Error("Empty field not handled")
+		}
+	})
+
+	t.Run("Nonexistent hash key", func(t *testing.T) {
+		db := testStore()
+		defer db.ClosePubSub()
+
+		ctx := context.Background()
+		_, ok, err := db.HGet(ctx, "nonexistent", "field")
+		if err != nil || ok {
+			t.Error("Should handle nonexistent keys")
+		}
+	})
+
+	t.Run("Update TTL for hash", func(t *testing.T) {
+		db := testStore()
+		defer db.ClosePubSub()
+
+		ctx := context.Background()
+		db.HSet(ctx, "update:ttl", "field", "value", 1)
+		db.UpdateTTL(ctx, "update:ttl", 3600)
+
+		// Check if still exists after original TTL
+		time.Sleep(2 * time.Second)
+		_, ok, _ := db.HGet(ctx, "update:ttl", "field")
+		if !ok {
+			t.Error("TTL update failed")
+		}
+	})
+}
+
 func TestPubSubSystem(t *testing.T) {
 	t.Run("Basic publish-subscribe", func(t *testing.T) {
 		db := testStore()

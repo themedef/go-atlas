@@ -23,9 +23,15 @@ type Entry struct {
 	Expiration time.Time
 }
 
+type HashEntry struct {
+	Fields     map[string]interface{}
+	Expiration time.Time
+}
+
 type DB struct {
 	mu          sync.RWMutex
 	data        map[string]Entry
+	hashes      map[string]HashEntry
 	logger      *logger.Logger
 	pubsub      *pubsub.PubSub
 	config      Config
@@ -49,6 +55,7 @@ func NewStore(config Config) *DB {
 
 	db := &DB{
 		data:   make(map[string]Entry),
+		hashes: make(map[string]HashEntry),
 		logger: dbLogger,
 		pubsub: pubsub.NewPubSub(),
 		config: config,
@@ -420,7 +427,6 @@ func (db *DB) FindByValue(ctx context.Context, value interface{}) ([]string, err
 func (db *DB) UpdateTTL(ctx context.Context, key string, ttl int) error {
 	select {
 	case <-ctx.Done():
-		db.logger.Error("UpdateTTL timeout key=%s", key)
 		return ctx.Err()
 	default:
 	}
@@ -428,22 +434,27 @@ func (db *DB) UpdateTTL(ctx context.Context, key string, ttl int) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	entry, exists := db.data[key]
-	if !exists || isExpired(entry) {
-		db.logger.Warn("UpdateTTL failed key=%s (not found or expired)", key)
-		return fmt.Errorf("key not found or expired")
+	if entry, exists := db.data[key]; exists {
+		if isExpired(entry) {
+			delete(db.data, key)
+			return fmt.Errorf("key expired")
+		}
+		entry.Expiration = ttlSecondsToTime(ttl)
+		db.data[key] = entry
+		return nil
 	}
 
-	if ttl <= 0 {
-		entry.Expiration = time.Time{}
-	} else {
-		entry.Expiration = time.Now().Add(time.Second * time.Duration(ttl))
+	if entry, exists := db.hashes[key]; exists {
+		if isHashExpired(entry) {
+			delete(db.hashes, key)
+			return fmt.Errorf("key expired")
+		}
+		entry.Expiration = ttlSecondsToTime(ttl)
+		db.hashes[key] = entry
+		return nil
 	}
 
-	db.data[key] = entry
-	db.logger.Info("UpdateTTL key=%s new TTL=%d", key, ttl)
-	db.pubsub.Publish(key, fmt.Sprintf("UPDATE TTL: %d", ttl))
-	return nil
+	return fmt.Errorf("key not found")
 }
 
 func (db *DB) FlushAll(ctx context.Context) error {
@@ -489,25 +500,135 @@ func (db *DB) FlushAll(ctx context.Context) error {
 	return nil
 }
 
+func (db *DB) HSet(ctx context.Context, key string, field string, value interface{}, ttl int) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	entry, exists := db.hashes[key]
+	if exists && isHashExpired(entry) {
+		delete(db.hashes, key)
+		exists = false
+	}
+
+	if !exists {
+		entry = HashEntry{
+			Fields:     make(map[string]interface{}),
+			Expiration: ttlSecondsToTime(ttl),
+		}
+	}
+
+	entry.Fields[field] = value
+	db.hashes[key] = entry
+
+	db.logger.Info("HSET key=%s field=%s", key, field)
+	return nil
+}
+
+func (db *DB) HGet(ctx context.Context, key string, field string) (interface{}, bool, error) {
+	select {
+	case <-ctx.Done():
+		return nil, false, ctx.Err()
+	default:
+	}
+
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	entry, exists := db.hashes[key]
+	if !exists || isHashExpired(entry) {
+		return nil, false, nil
+	}
+
+	val, ok := entry.Fields[field]
+	return val, ok, nil
+}
+
+func (db *DB) HDel(ctx context.Context, key string, field string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if entry, exists := db.hashes[key]; exists {
+		delete(entry.Fields, field)
+		if len(entry.Fields) == 0 {
+			delete(db.hashes, key)
+		}
+	}
+	return nil
+}
+
+func (db *DB) HGetAll(ctx context.Context, key string) (map[string]interface{}, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	entry, exists := db.hashes[key]
+	if !exists || isHashExpired(entry) {
+		return nil, nil
+	}
+
+	result := make(map[string]interface{})
+	for k, v := range entry.Fields {
+		result[k] = v
+	}
+	return result, nil
+}
+
+func isHashExpired(e HashEntry) bool {
+	if e.Expiration.IsZero() {
+		return false
+	}
+	return time.Now().After(e.Expiration)
+}
+
 func (db *DB) cleanupExpiredKeys(interval time.Duration) {
 	for {
 		time.Sleep(interval)
 
-		expiredKeys := make([]string, 0)
+		expiredDataKeys := make([]string, 0)
 		db.mu.RLock()
 		for key, entry := range db.data {
 			if isExpired(entry) {
-				expiredKeys = append(expiredKeys, key)
+				expiredDataKeys = append(expiredDataKeys, key)
 			}
 		}
 		db.mu.RUnlock()
 
-		if len(expiredKeys) > 0 {
+		expiredHashKeys := make([]string, 0)
+		db.mu.RLock()
+		for key, entry := range db.hashes {
+			if isHashExpired(entry) {
+				expiredHashKeys = append(expiredHashKeys, key)
+			}
+		}
+		db.mu.RUnlock()
+
+		if len(expiredDataKeys) > 0 || len(expiredHashKeys) > 0 {
 			db.mu.Lock()
-			for _, key := range expiredKeys {
+			for _, key := range expiredDataKeys {
 				if entry, exists := db.data[key]; exists && isExpired(entry) {
 					delete(db.data, key)
-					db.logger.Info("EXPIRED key=%s", key)
+					db.logger.Info("EXPIRED data key=%s", key)
+				}
+			}
+			for _, key := range expiredHashKeys {
+				if entry, exists := db.hashes[key]; exists && isHashExpired(entry) {
+					delete(db.hashes, key)
+					db.logger.Info("EXPIRED hash key=%s", key)
 				}
 			}
 			db.mu.Unlock()
