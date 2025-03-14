@@ -24,20 +24,24 @@ func (h *APIHandler) RunServer(port, prefix string, middlewares ...func(http.Han
 	}
 
 	handlers := map[string]http.HandlerFunc{
-		prefix + "/set":       h.SetHandler,
-		prefix + "/setnx":     h.SetNXHandler,
-		prefix + "/setxx":     h.SetXXHandler,
-		prefix + "/setcas":    h.SetCASHandler,
-		prefix + "/get":       h.GetHandler,
-		prefix + "/delete":    h.DeleteHandler,
-		prefix + "/incr":      h.IncrHandler,
-		prefix + "/decr":      h.DecrHandler,
-		prefix + "/lpush":     h.LPushHandler,
-		prefix + "/rpush":     h.RPushHandler,
-		prefix + "/lpop":      h.LPopHandler,
-		prefix + "/rpop":      h.RPopHandler,
-		prefix + "/find":      h.FindByValueHandler,
-		prefix + "/updateTTL": h.UpdateTTLHandler,
+		prefix + "/set":     h.SetHandler,
+		prefix + "/setnx":   h.SetNXHandler,
+		prefix + "/setxx":   h.SetXXHandler,
+		prefix + "/setcas":  h.SetCASHandler,
+		prefix + "/get":     h.GetHandler,
+		prefix + "/delete":  h.DeleteHandler,
+		prefix + "/incr":    h.IncrHandler,
+		prefix + "/decr":    h.DecrHandler,
+		prefix + "/lpush":   h.LPushHandler,
+		prefix + "/rpush":   h.RPushHandler,
+		prefix + "/lpop":    h.LPopHandler,
+		prefix + "/rpop":    h.RPopHandler,
+		prefix + "/find":    h.FindByValueHandler,
+		prefix + "/ttl":     h.UpdateTTLHandler,
+		prefix + "/hset":    h.HSetHandler,
+		prefix + "/hget":    h.HGetHandler,
+		prefix + "/hdel":    h.HDelHandler,
+		prefix + "/hgetall": h.HGetAllHandler,
 	}
 
 	for pattern, handler := range handlers {
@@ -448,5 +452,107 @@ func (h *APIHandler) UpdateTTLHandler(w http.ResponseWriter, r *http.Request) {
 		"message": "TTL updated",
 		"key":     req.Key,
 		"ttl":     req.TTL,
+	})
+}
+
+func (h *APIHandler) HSetHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Key   string      `json:"key"`
+		Field string      `json:"field"`
+		Value interface{} `json:"value"`
+		TTL   int         `json:"ttl"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.db.HSet(h.ctx, req.Key, req.Field, req.Value, req.TTL); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	helperEncodeJSON(w, map[string]interface{}{
+		"message": "HSET success",
+		"key":     req.Key,
+		"field":   req.Field,
+	})
+}
+
+func (h *APIHandler) HGetHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	key := r.URL.Query().Get("key")
+	field := r.URL.Query().Get("field")
+
+	value, exists, err := h.db.HGet(h.ctx, key, field)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !exists {
+		http.Error(w, "Field not found", http.StatusNotFound)
+		return
+	}
+
+	helperEncodeJSON(w, map[string]interface{}{
+		"key":   key,
+		"field": field,
+		"value": value,
+	})
+}
+
+func (h *APIHandler) HDelHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Key   string `json:"key"`
+		Field string `json:"field"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.db.HDel(h.ctx, req.Key, req.Field); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	helperEncodeJSON(w, map[string]interface{}{
+		"message": "HDEL success",
+		"key":     req.Key,
+		"field":   req.Field,
+	})
+}
+
+func (h *APIHandler) HGetAllHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	key := r.URL.Query().Get("key")
+
+	result, err := h.db.HGetAll(h.ctx, key)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	helperEncodeJSON(w, map[string]interface{}{
+		"key":    key,
+		"fields": result,
 	})
 }

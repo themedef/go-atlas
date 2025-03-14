@@ -12,6 +12,14 @@ import (
 	"time"
 )
 
+type DataType int
+
+const (
+	String DataType = iota
+	List
+	Hash
+)
+
 type Config struct {
 	CleanupInterval time.Duration
 	EnableLogging   bool
@@ -20,12 +28,19 @@ type Config struct {
 
 type Entry struct {
 	Value      interface{}
+	Type       DataType
+	Expiration time.Time
+}
+
+type HashEntry struct {
+	Fields     map[string]interface{}
 	Expiration time.Time
 }
 
 type DB struct {
 	mu          sync.RWMutex
 	data        map[string]Entry
+	hashes      map[string]HashEntry
 	logger      *logger.Logger
 	pubsub      *pubsub.PubSub
 	config      Config
@@ -49,6 +64,7 @@ func NewStore(config Config) *DB {
 
 	db := &DB{
 		data:   make(map[string]Entry),
+		hashes: make(map[string]HashEntry),
 		logger: dbLogger,
 		pubsub: pubsub.NewPubSub(),
 		config: config,
@@ -99,6 +115,7 @@ func (db *DB) setInternal(ctx context.Context, key string, value interface{}, tt
 	newEntry := Entry{
 		Value:      value,
 		Expiration: ttlSecondsToTime(ttl),
+		Type:       String,
 	}
 	db.data[key] = newEntry
 
@@ -283,15 +300,24 @@ func (db *DB) LPush(ctx context.Context, key string, value interface{}) error {
 
 	entry, exists := db.data[key]
 	if exists && !isExpired(entry) {
+		if entry.Type != List {
+			db.logger.Error("LPUSH failed: key=%s is not a list", key)
+			return fmt.Errorf("LPUSH failed: key=%s is not a list", key)
+		}
+
 		list, ok := entry.Value.([]interface{})
 		if !ok {
 			db.logger.Error("LPUSH failed: key=%s is not a list", key)
 			return fmt.Errorf("LPUSH failed: key=%s is not a list", key)
 		}
+
 		entry.Value = append([]interface{}{value}, list...)
 		db.data[key] = entry
 	} else {
-		db.data[key] = Entry{Value: []interface{}{value}}
+		db.data[key] = Entry{
+			Value: []interface{}{value},
+			Type:  List,
+		}
 	}
 
 	db.logger.Info("LPUSH key=%s value=%v", key, value)
@@ -312,15 +338,24 @@ func (db *DB) RPush(ctx context.Context, key string, value interface{}) error {
 
 	entry, exists := db.data[key]
 	if exists && !isExpired(entry) {
+		if entry.Type != List {
+			db.logger.Error("RPUSH failed: key=%s is not a list", key)
+			return fmt.Errorf("RPUSH failed: key=%s is not a list", key)
+		}
+
 		list, ok := entry.Value.([]interface{})
 		if !ok {
 			db.logger.Error("RPUSH failed: key=%s is not a list", key)
 			return fmt.Errorf("RPUSH failed: key=%s is not a list", key)
 		}
+
 		entry.Value = append(list, value)
 		db.data[key] = entry
 	} else {
-		db.data[key] = Entry{Value: []interface{}{value}}
+		db.data[key] = Entry{
+			Value: []interface{}{value},
+			Type:  List,
+		}
 	}
 
 	db.logger.Info("RPUSH key=%s value=%v", key, value)
@@ -420,7 +455,6 @@ func (db *DB) FindByValue(ctx context.Context, value interface{}) ([]string, err
 func (db *DB) UpdateTTL(ctx context.Context, key string, ttl int) error {
 	select {
 	case <-ctx.Done():
-		db.logger.Error("UpdateTTL timeout key=%s", key)
 		return ctx.Err()
 	default:
 	}
@@ -428,22 +462,27 @@ func (db *DB) UpdateTTL(ctx context.Context, key string, ttl int) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	entry, exists := db.data[key]
-	if !exists || isExpired(entry) {
-		db.logger.Warn("UpdateTTL failed key=%s (not found or expired)", key)
-		return fmt.Errorf("key not found or expired")
+	if entry, exists := db.data[key]; exists {
+		if isExpired(entry) {
+			delete(db.data, key)
+			return fmt.Errorf("key expired")
+		}
+		entry.Expiration = ttlSecondsToTime(ttl)
+		db.data[key] = entry
+		return nil
 	}
 
-	if ttl <= 0 {
-		entry.Expiration = time.Time{}
-	} else {
-		entry.Expiration = time.Now().Add(time.Second * time.Duration(ttl))
+	if entry, exists := db.hashes[key]; exists {
+		if isHashExpired(entry) {
+			delete(db.hashes, key)
+			return fmt.Errorf("key expired")
+		}
+		entry.Expiration = ttlSecondsToTime(ttl)
+		db.hashes[key] = entry
+		return nil
 	}
 
-	db.data[key] = entry
-	db.logger.Info("UpdateTTL key=%s new TTL=%d", key, ttl)
-	db.pubsub.Publish(key, fmt.Sprintf("UPDATE TTL: %d", ttl))
-	return nil
+	return fmt.Errorf("key not found")
 }
 
 func (db *DB) FlushAll(ctx context.Context) error {
@@ -487,6 +526,125 @@ func (db *DB) FlushAll(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+func (db *DB) HSet(ctx context.Context, key string, field string, value interface{}, ttl int) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	entry, exists := db.data[key]
+	if exists {
+		if isExpired(entry) {
+			delete(db.data, key)
+			exists = false
+		} else if entry.Type != Hash {
+			return fmt.Errorf("key exists but is not a hash")
+		}
+	}
+
+	if !exists {
+		entry = Entry{
+			Type:       Hash,
+			Value:      make(map[string]interface{}),
+			Expiration: ttlSecondsToTime(ttl),
+		}
+	}
+
+	hash := entry.Value.(map[string]interface{})
+	hash[field] = value
+	entry.Expiration = ttlSecondsToTime(ttl)
+	db.data[key] = entry
+
+	db.logger.Info("HSET key=%s field=%s", key, field)
+	return nil
+}
+
+func (db *DB) HGet(ctx context.Context, key string, field string) (interface{}, bool, error) {
+	select {
+	case <-ctx.Done():
+		return nil, false, ctx.Err()
+	default:
+	}
+
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	entry, exists := db.data[key]
+	if !exists || isExpired(entry) {
+		return nil, false, nil
+	}
+	if entry.Type != Hash {
+		return nil, false, fmt.Errorf("key is not a hash")
+	}
+
+	hash := entry.Value.(map[string]interface{})
+	val, ok := hash[field]
+	return val, ok, nil
+}
+
+func (db *DB) HDel(ctx context.Context, key string, field string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	entry, exists := db.data[key]
+	if !exists || isExpired(entry) || entry.Type != Hash {
+		return nil
+	}
+
+	hash := entry.Value.(map[string]interface{})
+	delete(hash, field)
+
+	if len(hash) == 0 {
+		delete(db.data, key)
+	} else {
+		db.data[key] = entry
+	}
+	return nil
+}
+
+func (db *DB) HGetAll(ctx context.Context, key string) (map[string]interface{}, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	entry, exists := db.data[key]
+	if !exists || isExpired(entry) {
+		return nil, nil
+	}
+	if entry.Type != Hash {
+		return nil, fmt.Errorf("key is not a hash")
+	}
+
+	hash := entry.Value.(map[string]interface{})
+	result := make(map[string]interface{}, len(hash))
+	for k, v := range hash {
+		result[k] = v
+	}
+	return result, nil
+}
+
+func isHashExpired(e HashEntry) bool {
+	if e.Expiration.IsZero() {
+		return false
+	}
+	return time.Now().After(e.Expiration)
 }
 
 func (db *DB) cleanupExpiredKeys(interval time.Duration) {
