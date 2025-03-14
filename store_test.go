@@ -388,7 +388,7 @@ func TestHashOperations(t *testing.T) {
 		defer db.ClosePubSub()
 
 		ctx := context.Background()
-		db.HSet(ctx, "temp:hash", "data", "value", 1) // TTL 1 second
+		db.HSet(ctx, "temp:hash", "data", "value", 1)
 
 		time.Sleep(2 * time.Second)
 
@@ -457,7 +457,6 @@ func TestEdgeCasesForHashes(t *testing.T) {
 		db.HSet(ctx, "update:ttl", "field", "value", 1)
 		db.UpdateTTL(ctx, "update:ttl", 3600)
 
-		// Check if still exists after original TTL
 		time.Sleep(2 * time.Second)
 		_, ok, _ := db.HGet(ctx, "update:ttl", "field")
 		if !ok {
