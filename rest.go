@@ -24,20 +24,24 @@ func (h *APIHandler) RunServer(port, prefix string, middlewares ...func(http.Han
 	}
 
 	handlers := map[string]http.HandlerFunc{
-		prefix + "/set":       h.SetHandler,
-		prefix + "/setnx":     h.SetNXHandler,
-		prefix + "/setxx":     h.SetXXHandler,
-		prefix + "/setcas":    h.SetCASHandler,
-		prefix + "/get":       h.GetHandler,
-		prefix + "/delete":    h.DeleteHandler,
-		prefix + "/incr":      h.IncrHandler,
-		prefix + "/decr":      h.DecrHandler,
-		prefix + "/lpush":     h.LPushHandler,
-		prefix + "/rpush":     h.RPushHandler,
-		prefix + "/lpop":      h.LPopHandler,
-		prefix + "/rpop":      h.RPopHandler,
-		prefix + "/find":      h.FindByValueHandler,
-		prefix + "/updateTTL": h.UpdateTTLHandler,
+		prefix + "/set":     h.SetHandler,
+		prefix + "/setnx":   h.SetNXHandler,
+		prefix + "/setxx":   h.SetXXHandler,
+		prefix + "/setcas":  h.SetCASHandler,
+		prefix + "/get":     h.GetHandler,
+		prefix + "/delete":  h.DeleteHandler,
+		prefix + "/incr":    h.IncrHandler,
+		prefix + "/decr":    h.DecrHandler,
+		prefix + "/lpush":   h.LPushHandler,
+		prefix + "/rpush":   h.RPushHandler,
+		prefix + "/lpop":    h.LPopHandler,
+		prefix + "/rpop":    h.RPopHandler,
+		prefix + "/find":    h.FindByValueHandler,
+		prefix + "/ttl":     h.UpdateTTLHandler,
+		prefix + "/hset":    h.HSetHandler,
+		prefix + "/hget":    h.HGetHandler,
+		prefix + "/hdel":    h.HDelHandler,
+		prefix + "/hgetall": h.HGetAllHandler,
 	}
 
 	for pattern, handler := range handlers {
